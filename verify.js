@@ -31,7 +31,7 @@ const run = async () => {
     const verifierAddress = await controller.getVerifierAddress()
     const verifier = new LivepeerVerifierWrapper(web3Wrapper, verifierAddress, argv.account)
 
-    await verifier.verify(0, 0, 0, "P720p60fps16x9,P720p30fps16x9", "QmR9BnJQisvevpCoSVWWKyownN58nydb2zQt9Z2VtnTnKe", "0x6644a3057b9d236bcc3b632068af92d008b2f4baf20ae9b78052ea75f729cedf")
+    await verifier.verify(0, 0, 0, "P720p60fps16x9,P720p30fps16x9", "QmR9BnJQisvevpCoSVWWKyownN58nydb2zQt9Z2VtnTnKe", "0x77903c5de84acf703524da5547df170612ab9308edfec742f5f22f5dc0cfb76a")
 }
 
 run()

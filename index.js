@@ -3,11 +3,13 @@ const ControllerWrapper = require("./lib/controllerWrapper")
 const LivepeerVerifierWrapper = require("./lib/livepeerVerifierWrapper")
 const ComputationArchive = require("./lib/computationArchive")
 const Web3 = require("web3")
+const prompt = require("prompt-sync")()
 
 const yargsOpts = {
     alias: {
         "controller": ["c"],
-        "account": ["a"]
+        "account": ["a"],
+        "password": ["p"]
     },
     configuration: {
         "parse-numbers": false
@@ -25,14 +27,30 @@ const LOG_FILE = "verification.log"
 
 const run = async () => {
     if (argv.controller === undefined) {
-        throw new Error("Must pass in the Controller contract address")
+        abort("Must pass in the Controller contract address")
     }
 
     if (argv.account === undefined) {
-        throw new Error("Must pass in an unlocked Etheruem account address")
+        abort("Must pass in a valid Ethereum account address")
     }
 
     const web3Wrapper = new Web3Wrapper(provider)
+    const nodeType = await web3Wrapper.getNodeType()
+
+    if (!nodeType.match(/TestRPC/i)) {
+        // Not connected to TestRPC
+        // User must unlock account
+        const password = ensurePassword()
+        if (!password) {
+            abort("Password required")
+        }
+
+        const success = await web3Wrapper.unlockAccount(argv.account, password)
+        if (!success) {
+            abort("Failed to unlock account")
+        }
+    }
+
     const controller = new ControllerWrapper(web3Wrapper, argv.controller)
     const verifierAddress = await controller.getVerifierAddress()
     const verifier = new LivepeerVerifierWrapper(web3Wrapper, verifierAddress, argv.account)
@@ -42,8 +60,21 @@ const run = async () => {
     process.on("SIGINT", async () => {
         await eventSub.stopWatching()
         console.log("Stop watching for events and exiting...")
-        process.exit()
+        process.exit(0)
     })
+}
+
+const abort = msg => {
+    console.log(msg || "Error occured")
+    process.exit(1)
+}
+
+const ensurePassword = () => {
+    if (argv.password) {
+        return argv.password
+    } else {
+        return prompt("Password: ")
+    }
 }
 
 const watchForVerifyRequests = async verifier => {
