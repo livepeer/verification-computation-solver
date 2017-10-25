@@ -1,3 +1,4 @@
+const path = require("path")
 const Web3Wrapper = require("./lib/web3Wrapper")
 const ControllerWrapper = require("./lib/controllerWrapper")
 const LivepeerVerifierWrapper = require("./lib/livepeerVerifierWrapper")
@@ -20,10 +21,10 @@ const argv = require("yargs-parser")(process.argv.slice(2), yargsOpts)
 
 const provider = new Web3.providers.HttpProvider("http://localhost:8545")
 
-const ARCHIVE_NAME = "archive.zip"
-const ARCHIVE_DIR = "archive"
-const DOCKER_IMAGE_NAME = "verification"
-const LOG_FILE = "verification.log"
+const ARCHIVE_NAME = path.resolve(__dirname, "archive.zip")
+const ARCHIVE_DIR = path.resolve(__dirname, "archive")
+const LOGS_DIR = path.resolve(__dirname, "logs")
+const DOCKER_IMAGE_NAME = "verifier"
 
 const run = async () => {
     if (argv.controller === undefined) {
@@ -41,9 +42,6 @@ const run = async () => {
         // Not connected to TestRPC
         // User must unlock account
         const password = ensurePassword()
-        if (!password) {
-            abort("Password required")
-        }
 
         const success = await web3Wrapper.unlockAccount(argv.account, password)
         if (!success) {
@@ -55,10 +53,20 @@ const run = async () => {
     const verifierAddress = await controller.getVerifierAddress()
     const verifier = new LivepeerVerifierWrapper(web3Wrapper, verifierAddress, argv.account)
 
-    const eventSub = await watchForVerifyRequests(verifier)
+    const archive = new ComputationArchive(ARCHIVE_NAME, ARCHIVE_DIR, LOGS_DIR, DOCKER_IMAGE_NAME)
+    const archiveHash = await verifier.getVerificationCodeHash()
+    await archive.setup(archiveHash)
+
+    const eventSub = await watchForVerifyRequests(verifier, archive)
 
     process.on("SIGINT", async () => {
-        await eventSub.stopWatching()
+        try {
+            await eventSub.stopWatching()
+            await archive.cleanup()
+        } catch (error) {
+            console.error(error)
+        }
+
         console.log("Stop watching for events and exiting...")
         process.exit(0)
     })
@@ -77,37 +85,40 @@ const ensurePassword = () => {
     }
 }
 
-const watchForVerifyRequests = async verifier => {
-    const archiveHash = await verifier.getVerificationCodeHash()
-
+const watchForVerifyRequests = async (verifier, archive) => {
     const eventSub = await verifier.subscribeToVerifyRequest()
 
     console.log("Watching for events...")
 
+    let requestNum = 0
+
     eventSub.watch(async (err, event) => {
-        console.log("Received verify request")
+        console.log("Received verify request # " + requestNum)
+        requestNum++
+
         console.log(event)
 
-        const result = await processVerifyRequest(archiveHash, event.args.transcodingOptions, event.args.dataStorageHash)
+        let result
+        try {
+            result = await processVerifyRequest(requestNum, archive, event.args.transcodingOptions, event.args.dataStorageHash)
+        } catch (error) {
+            console.error(error)
+            return
+        }
 
         // Write result on-chain using invokeCallback
-        await verifier.invokeCallback(event.args.requestId, "0x" + result)
+        const receipt = await verifier.invokeCallback(event.args.requestId, "0x" + result)
+        console.log(receipt)
     })
 
     return eventSub
 }
 
-const processVerifyRequest = async (archiveHash, transcodingOptions, dataStorageHash) => {
-    const archive = new ComputationArchive(ARCHIVE_NAME, ARCHIVE_DIR, DOCKER_IMAGE_NAME, LOG_FILE)
+const processVerifyRequest = async (requestNum, archive, transcodingOptions, dataStorageHash) => {
+    await archive.runDockerApp(requestNum, dataStorageHash, transcodingOptions)
 
-    await archive.getArchive(archiveHash)
-    await archive.unzipArchive()
-    await archive.buildDockerImage()
-    await archive.runDockerApp(dataStorageHash, transcodingOptions)
-    await archive.cleanUp()
-
-    const result = await archive.getDockerAppResult()
+    const result = await archive.getDockerAppResult(requestNum)
     return result
 }
 
-run()
+run().catch(console.log)
