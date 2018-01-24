@@ -100,17 +100,14 @@ const watchForVerifyRequests = async (verifier, archive) => {
 
     console.log("Watching for verification request events...")
 
-    let requestNum = 0
-
     eventSub.watch(async (err, event) => {
-        console.log("Received verify request #" + requestNum)
-        requestNum++
+        console.log("Received verify request #" + event.args.requestId)
 
         console.log(event)
 
         let result
         try {
-            result = await processVerifyRequest(requestNum, archive, event.args.transcodingOptions, event.args.dataStorageHash)
+            result = await processVerifyRequest(event.args.requestId, archive, event.args.transcodingOptions, event.args.dataStorageHash)
         } catch (error) {
             console.error(error)
             return
@@ -121,7 +118,7 @@ const watchForVerifyRequests = async (verifier, archive) => {
         try {
             receipt = await verifier.invokeCallback(event.args.requestId, "0x" + result)
         } catch (error) {
-            console.error(error)
+            console.error(`Failed to invoke callback with verification result: ${error}`)
             return
         }
 
