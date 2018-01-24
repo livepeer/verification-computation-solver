@@ -41,13 +41,14 @@ const run = async () => {
     if (!nodeType.match(/TestRPC/i)) {
         // Not connected to TestRPC
         // User must unlock account
-        const password = ensurePassword()
 
-        const success = await web3Wrapper.unlockAccount(argv.account, password)
+        const success = unlock(argv.account, argv.password, web3Wrapper)
         if (!success) {
             abort("Failed to unlock account")
         }
     }
+
+    console.log(`Account ${argv.account} unlocked`)
 
     const controller = new ControllerWrapper(web3Wrapper, argv.controller)
     const verifierAddress = await controller.getVerifierAddress()
@@ -55,7 +56,12 @@ const run = async () => {
 
     const archive = new ComputationArchive(ARCHIVE_NAME, ARCHIVE_DIR, LOGS_DIR, DOCKER_IMAGE_NAME)
     const archiveHash = await verifier.getVerificationCodeHash()
+
+    console.log(`Retrieved computation archive from IPFS using hash ${archiveHash}`)
+
     await archive.setup(archiveHash)
+
+    console.log("Finished setting up computation archive")
 
     const eventSub = await watchForVerifyRequests(verifier, archive)
 
@@ -77,23 +83,27 @@ const abort = msg => {
     process.exit(1)
 }
 
-const ensurePassword = () => {
-    if (argv.password) {
-        return argv.password
+const unlock = async (account, password, web3Wrapper) => {
+    let success = await web3Wrapper.unlockAccount(account, password)
+    if (!success) {
+        // Prompt for password if default password fails
+        password = prompt("Password: ")
+
+        return await web3Wrapper.unlockAccount(account, password)
     } else {
-        return prompt("Password: ")
+        return true
     }
 }
 
 const watchForVerifyRequests = async (verifier, archive) => {
     const eventSub = await verifier.subscribeToVerifyRequest()
 
-    console.log("Watching for events...")
+    console.log("Watching for verification request events...")
 
     let requestNum = 0
 
     eventSub.watch(async (err, event) => {
-        console.log("Received verify request # " + requestNum)
+        console.log("Received verify request #" + requestNum)
         requestNum++
 
         console.log(event)
@@ -107,7 +117,14 @@ const watchForVerifyRequests = async (verifier, archive) => {
         }
 
         // Write result on-chain using invokeCallback
-        const receipt = await verifier.invokeCallback(event.args.requestId, "0x" + result)
+        let receipt
+        try {
+            receipt = await verifier.invokeCallback(event.args.requestId, "0x" + result)
+        } catch (error) {
+            console.error(error)
+            return
+        }
+
         console.log(receipt)
     })
 
