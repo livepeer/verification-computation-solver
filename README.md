@@ -14,6 +14,7 @@ with parameters from the request event and submits the result of the computation
 ```
 ipfs daemon &
 cd verification-computation-solver
+npm install
 node index.js -a <ACCOUNT_ADDRESS> -c <CONTROLLER_ADDRESS>
 ```
 
