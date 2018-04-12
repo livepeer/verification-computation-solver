@@ -4,6 +4,8 @@ const ControllerWrapper = require("./lib/controllerWrapper")
 const LivepeerVerifierWrapper = require("./lib/livepeerVerifierWrapper")
 const ComputationArchive = require("./lib/computationArchive")
 const Web3 = require("web3")
+const ethUtil = require("ethereumjs-util")
+const ethAbi = require("ethereumjs-abi")
 const prompt = require("prompt-sync")()
 
 const yargsOpts = {
@@ -57,7 +59,7 @@ const run = async () => {
     const archive = new ComputationArchive(ARCHIVE_NAME, ARCHIVE_DIR, LOGS_DIR, DOCKER_IMAGE_NAME)
     const archiveHash = await verifier.getVerificationCodeHash()
 
-    console.log(`Retrieved computation archive from IPFS using hash ${archiveHash}`)
+    console.log(`Using verification code at IPFS hash ${archiveHash}`)
 
     await archive.setup(archiveHash)
 
@@ -101,9 +103,8 @@ const watchForVerifyRequests = async (verifier, archive) => {
     console.log("Watching for verification request events...")
 
     eventSub.watch(async (err, event) => {
-        console.log("Received verify request #" + event.args.requestId)
-
-        console.log(event)
+        console.log(`Received verify request #${event.args.requestId}`)
+        console.log(`Job ID: ${event.args.jobId} Claim ID: ${event.args.claimId} Seg #: ${event.args.segmentNumber}`)
 
         let result
         try {
@@ -113,16 +114,13 @@ const watchForVerifyRequests = async (verifier, archive) => {
             return
         }
 
-        // Write result on-chain using invokeCallback
-        let receipt
-        try {
-            receipt = await verifier.invokeCallback(event.args.requestId, "0x" + result)
-        } catch (error) {
-            console.error(`Failed to invoke callback with verification result: ${error}`)
-            return
-        }
+        const transcoderResultHash = ethUtil.bufferToHex(
+            ethAbi.soliditySHA3(["bytes", "bytes"], [ethUtil.toBuffer(event.args.dataHash), ethUtil.toBuffer(event.args.transcodedDataHash)])
+        )
 
-        console.log(receipt)
+        console.log(`Results for verify request #${event.args.requestId}`)
+        console.log(`Transcoder result hash: ${transcoderResultHash}`)
+        console.log(`Verifier result hash: 0x${result}`)
     })
 
     return eventSub
