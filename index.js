@@ -44,8 +44,9 @@ const run = async () => {
         // Not connected to TestRPC
         // User must unlock account
 
-        const success = unlock(argv.account, argv.password, web3Wrapper)
-        if (!success) {
+        try {
+            await unlock(argv.account, argv.password, web3Wrapper)
+        } catch (err) {
             abort("Failed to unlock account")
         }
     }
@@ -86,14 +87,13 @@ const abort = msg => {
 }
 
 const unlock = async (account, password, web3Wrapper) => {
-    let success = await web3Wrapper.unlockAccount(account, password)
-    if (!success) {
+    try {
+        await web3Wrapper.unlockAccount(account, password)
+    } catch (err) {
         // Prompt for password if default password fails
-        password = prompt("Password: ")
+        password = prompt("Password: ", {echo: ""})
 
-        return await web3Wrapper.unlockAccount(account, password)
-    } else {
-        return true
+        await web3Wrapper.unlockAccount(account, password)
     }
 }
 
